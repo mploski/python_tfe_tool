@@ -6,6 +6,8 @@ import getopt
 import requests
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 import os
+import pydoc
+
 
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
@@ -18,6 +20,12 @@ def usage(tool_name):
     print('usage: test.py -o <organization> -c <command> [args]\n')
     print('This scripts facilitates working around certain feature of Terraform Cloud\n'
           'or Enterprise and can be used to run bulk actions over multiple entities.')
+
+    print('\nCommands:')
+    print('\tlist_workspaces\t\tList all Terraform workspaces.')
+    print('\tfind_workspace\t\tFinds either workspace name or ID.\n\t\t\t\tRequire workspace ID, name or file list.')
+    print('\tset_workspace_var\tSet or updates var for specified workspace(s)\n\t\t\t\tRequire workspace ID or name, key_value or file list')
+
     print('\nArguments:')
     print('\t--help\t\t\tShow this help message and exit')
     print('\t-h, --hostname\t\tTerraform Enterprise hostname. By default, it uses "app.terraform.io"')
@@ -26,11 +34,9 @@ def usage(tool_name):
     print('\t-v, --variable\t\tNew workspace variable <key:value>')
     print('\t-l, --list\t\tPath to file containing CSV (comma separated) data to use for bulk actions')
     print('\t-c, --command\t\tCommand name, as for list below.')
+    print('\t-p\t\t\tUse pager for long outputs.')
     print('\t--credentials\t\tPath to custom TFE credentials file.')
-    print('\nCommands:')
-    print('\tlist_workspaces\t\tList all Terraform workspaces.')
-    print('\tfind_workspace\t\tFinds either workspace name or ID.\n\t\t\t\tRequire workspace ID, name or file list.')
-    print('\tset_workspace_var\tSet or updates var for specified workspace(s)\n\t\t\t\tRequire workspace ID or name, key_value or file list')
+
     print('\nExamples:')
     print('\nFind workspace ID or Name:')
     print('\t{0} -o myorg -c find_workspace -w ws-L9AQYF1RqRRkQs1k'.format(tool_name))
@@ -57,9 +63,23 @@ def get_terraform_token(credentials_file, hostname):
         return json.loads(file_content)["credentials"][hostname]["token"]
 
 
-def list_workspaces(hostname, token, organization):
+def get_workspaces_total_pages(hostname, token, organization):
+    api_url = "https://{0}/api/v2/organizations/{1}/workspaces?page%5Bsize%5D={2}".format(hostname, organization, 100)
 
-    api_url = "https://{0}/api/v2/organizations/{1}/workspaces".format(hostname, organization)
+    headers = {'Content-Type': 'application/vnd.api+json',
+               'Authorization': 'Bearer {0}'.format(token)}
+
+    r = requests.get(api_url, headers=headers, verify=False)
+
+    if r.status_code == 200:
+        return json.loads(r.content.decode('utf-8'))["meta"]["pagination"]["total-pages"]
+    else:
+        return None
+
+
+def get_workspace_page_content(hostname, token, organization, page):
+
+    api_url = "https://{0}/api/v2/organizations/{1}/workspaces?page%5Bnumber%5D={2}&page%5Bsize%5D={3}".format(hostname, organization, page, 100)
 
     headers = {'Content-Type': 'application/vnd.api+json',
                'Authorization': 'Bearer {0}'.format(token)}
@@ -70,6 +90,23 @@ def list_workspaces(hostname, token, organization):
         return json.loads(r.content.decode('utf-8'))
     else:
         return None
+
+
+def list_workspaces(hostname, token, organization):
+    all_content = []
+    output = ""
+
+    pages = get_workspaces_total_pages(hostname, token, organization)
+    # print("Total pages found {0}".format(pages))
+
+    for page in range(pages):
+        all_content.append(get_workspace_page_content(hostname, token, organization, page))
+
+    for page in all_content:
+        for item in page["data"]:
+            output = "{0}\n{1} - {2}".format(output, item["id"], item["attributes"]["name"])
+
+    return output
 
 
 # Find either workspace name or ID
@@ -234,17 +271,18 @@ def main(argv):
     file_list = ""
     command = ""
     credentials_file = ""
+    pager = False
 
     try:
-        opts, args = getopt.getopt(argv, "c:h:w:v:l:o:", ["help", "command=", "hostname=", "workspace=", "variable=",
+        opts, args = getopt.getopt(argv, "c:h:w:v:l:o:p", ["help", "command=", "hostname=", "workspace=", "variable=",
                                                           "organization=", "credentials=", "list="])
     except getopt.GetoptError:
-        usage()
+        usage(sys.argv[0])
         sys.exit(2)
 
     for opt, arg in opts:
         if opt == '--help':
-            usage()
+            usage(sys.argv[0])
             sys.exit()
 
         elif opt in ("-c", "--command"):
@@ -265,6 +303,9 @@ def main(argv):
         elif opt in ("-l", "--list"):
             file_list = arg
 
+        elif opt in ("-p"):
+            pager = True
+
         elif opt in "--credentials":
             credentials_file = arg
 
@@ -274,8 +315,10 @@ def main(argv):
         all_workspaces = list_workspaces(hostname, api_token, organization)
 
         if all_workspaces is not None:
-            for item in all_workspaces["data"]:
-                print(item["id"], " ", item["attributes"]["name"])
+            if pager:
+                pydoc.pager(all_workspaces)
+            else:
+                print(all_workspaces)
         else:
             print("No workspaces found.")
 
