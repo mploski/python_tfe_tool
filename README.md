@@ -26,6 +26,8 @@ usage: `test.py -o <organization> -c <command> [args]`
 
 `-c, --command`           Command name, as for list below.
 
+`-p`                      Use pager output where available.
+
 `--credentials`           Path to custom TFE credentials file.
 
 ### Examples:
