@@ -25,6 +25,7 @@ def usage(tool_name, output):
     print('\tlist_workspaces\t\tList all Terraform workspaces.')
     print('\tfind_workspace\t\tFinds either workspace name or ID.\n\t\t\t\tRequire workspace ID, name or file list.')
     print('\tcreate_workspace\tCreate workspace/s or list.\n\t\t\t\tRequire workspace name or file list.')
+    print('\tdelete_workspace\tDelete workspace/s or list.\n\t\t\t\tRequire workspace name or file list.')
     print('\tset_workspace_var\tSet or updates var for specified workspace(s)\n\t\t\t\tRequire workspace ID or name, key_value or file list')
 
     print('\nArguments:')
@@ -112,7 +113,7 @@ def list_workspaces(hostname, token, organization):
 
 
 def create_workspace(hostname, token, organization, workspace):
-    api_url = "https://{0}/api/v2/workspaces".format(hostname, organization)
+    api_url = "https://{0}/api/v2/organizations/{1}/workspaces".format(hostname, organization)
 
     data = {
         "data": {
@@ -131,6 +132,30 @@ def create_workspace(hostname, token, organization, workspace):
     if r.status_code == 200:
         return json.loads(r.content.decode('utf-8'))
     else:
+        return None
+
+
+def delete_workspace(hostname, token, organization, workspace):
+
+    # Check if workspace is name
+    if find_workspace_name(hostname, token, workspace) is None:
+        # Workspace value provider is name. Replacing with ID
+        workspace = find_workspace_id(hostname, token, organization, workspace)
+        # If ID returns empty, workspace is not found
+        if workspace is None:
+            return None
+
+    api_url = "https://{0}/api/v2/workspaces/{1}".format(hostname, workspace)
+
+    headers = {'Content-Type': 'application/vnd.api+json',
+               'Authorization': 'Bearer {0}'.format(token)}
+
+    r = requests.delete(api_url, headers=headers, verify=False)
+
+    if r.status_code == 200:
+        return json.loads(r.content.decode('utf-8'))
+    else:
+        print(r.reason)
         return None
 
 
@@ -398,6 +423,22 @@ def main(argv):
                     if len(entry) >= 1:
                         print("- {0}".format(entry[0]))
                         create_workspace(hostname, api_token, organization, entry[0])
+
+                    line = l.readline()
+
+    elif command == "delete_workspaces" or command == "delete_workspace":
+        if file_list is "":
+            delete_workspace(hostname, api_token, organization, workspace)
+
+        else:
+            with open(file_list) as l:
+                line = l.readline()
+                print("Deleting workspaces in list:")
+                while line:
+                    entry = line.strip().split(",")
+                    if len(entry) >= 1:
+                        print("- {0}".format(entry[0]))
+                        delete_workspace(hostname, api_token, organization, entry[0])
 
                     line = l.readline()
 
