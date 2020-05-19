@@ -12,7 +12,7 @@ import pydoc
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 
-def usage(tool_name):
+def usage(tool_name, output):
 
     # Find script name
     tool_name = tool_name.split("/")[-1]
@@ -24,6 +24,7 @@ def usage(tool_name):
     print('\nCommands:')
     print('\tlist_workspaces\t\tList all Terraform workspaces.')
     print('\tfind_workspace\t\tFinds either workspace name or ID.\n\t\t\t\tRequire workspace ID, name or file list.')
+    print('\tcreate_workspace\tCreate workspace/s or list.\n\t\t\t\tRequire workspace name or file list.')
     print('\tset_workspace_var\tSet or updates var for specified workspace(s)\n\t\t\t\tRequire workspace ID or name, key_value or file list')
 
     print('\nArguments:')
@@ -37,15 +38,16 @@ def usage(tool_name):
     print('\t-p\t\t\tUse pager for long outputs.')
     print('\t--credentials\t\tPath to custom TFE credentials file.')
 
-    print('\nExamples:')
-    print('\nFind workspace ID or Name:')
-    print('\t{0} -o myorg -c find_workspace -w ws-L9AQYF1RqRRkQs1k'.format(tool_name))
-    print('\t{0} -o myorg -c find_workspace -w my_workspace'.format(tool_name))
-    print('\nList all available workspaces:')
-    print('\t{0} -o myorg -c list_workspaces'.format(tool_name))
-    print('\nSet or update workspaces vars:')
-    print('\t{0} -o myorg -c set_workspace_var -w my_workspace -v "foo:bar"'.format(tool_name))
-    print('\t{0} -o myorg -c set_workspace_var -w my_workspace -l test_data/set_vars.csv'.format(tool_name))
+    if output == "full":
+        print('\nExamples:')
+        print('\nFind workspace ID or Name:')
+        print('\t{0} -o myorg -c find_workspace -w ws-L9AQYF1RqRRkQs1k'.format(tool_name))
+        print('\t{0} -o myorg -c find_workspace -w my_workspace'.format(tool_name))
+        print('\nList all available workspaces:')
+        print('\t{0} -o myorg -c list_workspaces'.format(tool_name))
+        print('\nSet or update workspaces vars:')
+        print('\t{0} -o myorg -c set_workspace_var -w my_workspace -v "foo:bar"'.format(tool_name))
+        print('\t{0} -o myorg -c set_workspace_var -w my_workspace -l test_data/set_vars.csv'.format(tool_name))
 
 
 # Retrieve auth token from Terraform cloud/enterprise credentials file
@@ -107,6 +109,29 @@ def list_workspaces(hostname, token, organization):
             output = "{0}\n{1} - {2}".format(output, item["id"], item["attributes"]["name"])
 
     return output
+
+
+def create_workspace(hostname, token, organization, workspace):
+    api_url = "https://{0}/api/v2/workspaces".format(hostname, organization)
+
+    data = {
+        "data": {
+            "attributes": {
+                "name": workspace
+            },
+            "type": "workspaces"
+        }
+    }
+
+    headers = {'Content-Type': 'application/vnd.api+json',
+               'Authorization': 'Bearer {0}'.format(token)}
+
+    r = requests.post(api_url, data=json.dumps(data), headers=headers, verify=False)
+
+    if r.status_code == 200:
+        return json.loads(r.content.decode('utf-8'))
+    else:
+        return None
 
 
 # Find either workspace name or ID
@@ -186,6 +211,7 @@ def find_var_id(hostname, token, workspace, varname):
                 return var["id"]
     else:
         return None
+
 
 # Update existing workspace var. Requires var id
 def update_workspace_var(hostname, token, workspace, keyvalue, varid):
@@ -276,13 +302,14 @@ def main(argv):
     try:
         opts, args = getopt.getopt(argv, "c:h:w:v:l:o:p", ["help", "command=", "hostname=", "workspace=", "variable=",
                                                           "organization=", "credentials=", "list="])
-    except getopt.GetoptError:
-        usage(sys.argv[0])
+    except getopt.GetoptError as err:
+        usage(sys.argv[0], "short")
+        print("Error:\n", err)
         sys.exit(2)
 
     for opt, arg in opts:
         if opt == '--help':
-            usage(sys.argv[0])
+            usage(sys.argv[0], "full")
             sys.exit()
 
         elif opt in ("-c", "--command"):
@@ -303,7 +330,7 @@ def main(argv):
         elif opt in ("-l", "--list"):
             file_list = arg
 
-        elif opt in ("-p"):
+        elif opt in "-p":
             pager = True
 
         elif opt in "--credentials":
@@ -358,8 +385,24 @@ def main(argv):
 
                     line = l.readline()
 
+    elif command == "create_workspaces" or command == "create_workspace":
+        if file_list is "":
+            create_workspace(hostname, api_token, organization, workspace)
+
+        else:
+            with open(file_list) as l:
+                line = l.readline()
+                print("Creating workspaces in list:")
+                while line:
+                    entry = line.strip().split(",")
+                    if len(entry) >= 1:
+                        print("- {0}".format(entry[0]))
+                        create_workspace(hostname, api_token, organization, entry[0])
+
+                    line = l.readline()
+
     else:
-        usage(sys.argv[0])
+        usage(sys.argv[0], "short")
         sys.exit(2)
 
 
